@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/kingparks/cursor-vip/auth"
-	"github.com/kingparks/cursor-vip/tui"
+	"github.com/cepyseo/cursorpre/auth"
+	"github.com/cepyseo/cursorpre/tui"
 	"os"
 	"os/signal"
 	"syscall"

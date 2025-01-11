@@ -18,14 +18,14 @@ Open the terminal on MacOS/Linux; Open Git Bash on Windows(If you don't have Git
 
 Method 1: Install via GitHub script
 ```bash
-bash <(curl -Lk https://github.com/kingparks/cursor-vip/releases/download/latest/i.sh) githubReadme
+bash <(curl -Lk https://github.com/cepyseo/cursorpre/releases/download/latest/i.sh) githubReadme
 ```
 Method 2: Install via Gitee script
 ```bash
 bash <(curl -Lk https://gitee.com/kingparks/cursor-vip/releases/download/latest/ic.sh) githubReadme
 ```
 Method 3: Manually download the binary file
-> download the binary file for the corresponding operating system from the [release](https://github.com/kingparks/cursor-vip/releases) page
+> download the binary file for the corresponding operating system from the [release](https://github.com/cepyseo/cursorpre/releases) page
  ```shell
 # MaxOS/Linux
 sudo mv cursor-vip_xx_xxx /usr/local/bin/cursor-vip;

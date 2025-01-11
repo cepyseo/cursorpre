@@ -1,18 +1,17 @@
 package tui
 
 import (
-	"crypto/md5"
 	"embed"
-	"flag"
 	"fmt"
 	"github.com/atotto/clipboard"
-	"howett.net/plist"
-	"log"
-	"net"
+	"github.com/cepyseo/cursorpre/tui/client"
+	"github.com/cepyseo/cursorpre/tui/params"
+	"github.com/cepyseo/cursorpre/tui/tool"
+	"github.com/mattn/go-colorable"
+	"syscall"
+
 	"os"
-	"os/exec"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,37 +19,16 @@ import (
 	"github.com/unknwon/i18n"
 )
 
-var version = 100
-
-var hosts = []string{"http://129.154.205.7:7193"}
-var host = hosts[0]
-var githubPath = "https://mirror.ghproxy.com/https://github.com/kingparks/cursor-vip/releases/download/latest/"
-var err error
-
-var green = "\033[32m%s\033[0m\n"
-var yellow = "\033[33m%s\033[0m\n"
-var hGreen = "\033[1;32m%s\033[0m"
-var dGreen = "\033[4;32m%s\033[0m\n"
-var red = "\033[31m%s\033[0m\n"
-var defaultColor = "%s"
-var lang, _ = getLocale()
-var deviceID = getMacMD5()
-var Cli = Client{Hosts: hosts}
-
 //go:embed all:locales
 var localeFS embed.FS
 
-type Tr struct {
-	i18n.Locale
-}
-
-var Trr *Tr
-
-var jbProduct = []string{"cursor IDE"}
-
-func Run() (productIndexSelected string) {
-	language := flag.String("l", lang, "set language, eg: zh, en, nl, ru, hu, Trr")
-	flag.Parse()
+// Run 启动
+func Run() (productSelected string, modelIndexSelected int) {
+	params.ColorOut = colorable.NewColorableStdout()
+	params.Lang, params.Promotion, params.Mode = tool.GetConfig()
+	params.DeviceID = tool.GetMachineID()
+	params.MachineID = tool.GetMachineID()
+	client.Cli = client.Client{Hosts: params.Hosts}
 
 	localeFileEn, _ := localeFS.ReadFile("locales/en.ini")
 	_ = i18n.SetMessage("en", localeFileEn)
@@ -60,232 +38,173 @@ func Run() (productIndexSelected string) {
 	_ = i18n.SetMessage("ru", localeFileRu)
 	localeFileHu, _ := localeFS.ReadFile("locales/hu.ini")
 	_ = i18n.SetMessage("hu", localeFileHu)
-	localeFileTr, _ := localeFS.ReadFile("locales/Trr.ini")
-	_ = i18n.SetMessage("Trr", localeFileTr)
+	localeFileTr, _ := localeFS.ReadFile("locales/tr.ini")
+	_ = i18n.SetMessage("tr", localeFileTr)
 	localeFileEs, _ := localeFS.ReadFile("locales/es.ini")
 	_ = i18n.SetMessage("es", localeFileEs)
-	lang = *language
-	switch lang {
+	switch params.Lang {
 	case "zh":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "zh"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "zh"}}
+		params.GithubPath = strings.ReplaceAll(params.GithubPath, "https://github.com", "https://gitee.com")
+		params.GithubInstall = "ic.sh"
 	case "nl":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "nl"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "nl"}}
 	case "ru":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "ru"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "ru"}}
 	case "hu":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "hu"}}
-	case "Trr":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "Trr"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "hu"}}
+	case "tr":
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "tr"}}
 	case "es":
-		Trr = &Tr{Locale: i18n.Locale{Lang: "es"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "es"}}
 	default:
-		Trr = &Tr{Locale: i18n.Locale{Lang: "en"}}
+		params.Trr = &params.Tr{Locale: i18n.Locale{Lang: "en"}}
 	}
 
-	fmt.Printf(green, Trr.Tr("CURSOR VIP")+` v`+strings.Join(strings.Split(fmt.Sprint(version), ""), "."))
-	Cli.SetProxy(lang)
-	sCount, sPayCount, _, _, exp := Cli.GetMyInfo(deviceID)
-	fmt.Printf(green, Trr.Tr("设备码")+":"+deviceID)
-	fmt.Printf(green, Trr.Tr("付费到期时间")+":"+exp)
-	fmt.Printf("\033[32m%s\033[0m\u001B[1;32m %s \u001B[0m\033[32m%s\033[0m\u001B[1;32m %s \u001B[0m\u001B[32m%s\u001B[0m\n",
-		Trr.Tr("推广命令：(已推广"), sCount, Trr.Tr("人,推广已付费"), sPayCount, Trr.Tr("人；每推广10人或推广付费2人可获得一年授权)"))
-	fmt.Printf(hGreen, "bash <(curl "+githubPath+"install.sh) "+deviceID+"\n")
+	_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("CURSOR VIP")+` v`+strings.Join(strings.Split(fmt.Sprint(params.Version), ""), "."))
+	// 检查是否在容器环境
+	if content, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+		if strings.Contains(string(content), "/docker/") {
+			_, _ = fmt.Fprintf(params.ColorOut, params.Red, params.Trr.Tr("不支持容器环境"))
+			_, _ = fmt.Scanln()
+			// 发送退出信号
+			params.Sigs <- syscall.SIGTERM
+			panic(params.Trr.Tr("不支持容器环境"))
+		}
+	}
+	client.Cli.SetProxy(params.Lang)
+	sCount, sPayCount, _, _, exp := client.Cli.GetMyInfo(params.DeviceID)
+	_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("设备码")+":"+params.DeviceID)
+	expTime, _ := time.ParseInLocation("2006-01-02 15:04:05", exp, time.Local)
+	_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("付费到期时间")+":"+exp)
+	_, _ = fmt.Fprintf(params.ColorOut, "\033[32m%s\033[0m\u001B[1;32m %s \u001B[0m\033[32m%s\033[0m\u001B[1;32m %s \u001B[0m\u001B[32m%s\u001B[0m\n",
+		params.Trr.Tr("推广命令：(已推广"), sCount, params.Trr.Tr("人,推广已付费"), sPayCount, params.Trr.Tr("人；每推广付费2人可自动获得一年授权)"))
+	_, _ = fmt.Fprintf(params.ColorOut, params.HGreen, "bash <(curl -Lk "+params.GithubPath+params.GithubInstall+") "+params.DeviceID+"\n")
+	_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("专属推广链接")+"："+params.Host+"?p="+params.DeviceID)
+	fmt.Println()
 
 	printAD()
-	checkUpdate(version)
 	fmt.Println()
-	if len(jbProduct) > 1 {
-		fmt.Printf(defaultColor, Trr.Tr("选择要授权的产品："))
-		for i, v := range jbProduct {
-			fmt.Printf(hGreen, fmt.Sprintf("%d. %s\t", i+1, v))
+	checkUpdate(params.Version)
+
+	// 快捷键
+	_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("Switch to English：simultaneously press keyboard 's' 'e' 'n'"))
+	modelIndexSelected = int(params.Mode)
+	switch params.Mode {
+	case 1:
+		_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("切换为模式2：依次按键盘 's' 'm' '2'"))
+	case 2:
+		_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("切换为模式1：依次按键盘 's' 'm' '1'"))
+	}
+	fmt.Println()
+
+	if len(params.Product) > 1 {
+		_, _ = fmt.Fprintf(params.ColorOut, params.DefaultColor, params.Trr.Tr("选择要授权的产品："))
+		for i, v := range params.Product {
+			_, _ = fmt.Fprintf(params.ColorOut, params.HGreen, fmt.Sprintf("%d. %s\t", i+1, v))
 		}
 		fmt.Println()
-		fmt.Print(Trr.Tr("请输入产品编号（直接回车默认为1，可以同时输入多个例如 145）："))
+		fmt.Print(params.Trr.Tr("请输入产品编号（直接回车默认为1，可以同时输入多个例如 145）："))
 		productIndex := 1
 		_, _ = fmt.Scanln(&productIndex)
 		if productIndex < 1 {
-			fmt.Println(Trr.Tr("输入有误"))
+			fmt.Println(params.Trr.Tr("输入有误"))
 			return
 		}
 		for _, v := range strings.Split(fmt.Sprint(productIndex), "") {
 			vi, _ := strconv.Atoi(v)
-			productIndexSelected += jbProduct[vi-1] + ","
+			productSelected += params.Product[vi-1] + ","
 		}
-		if len(productIndexSelected) > 1 {
-			productIndexSelected = productIndexSelected[:len(productIndexSelected)-1]
+		if len(productSelected) > 1 {
+			productSelected = productSelected[:len(productSelected)-1]
 		}
-		fmt.Println(Trr.Tr("选择的产品为：") + productIndexSelected)
+		fmt.Println(params.Trr.Tr("选择的产品为：") + productSelected)
 		fmt.Println()
 	} else {
-		productIndexSelected = jbProduct[0]
+		productSelected = params.Product[0]
 	}
-	// 
-	
-		fmt.Println(Trr.Tr("使用浏览器打开下面地址进行捐赠") + isCopyText)
-		fmt.Printf(dGreen, payUrl)
-		fmt.Println(Trr.Tr("捐赠完成后请回车"))
+	// 到期了
+	periodIndex := 1
+	if expTime.Before(time.Now()) {
+		_, _ = fmt.Fprintf(params.ColorOut, params.DefaultColor, params.Trr.Tr("选择有效期："))
+		//jbPeriod := []string{"1" + params.Trr.Tr("年(购买)"), "2" + params.Trr.Tr("小时(免费)")}
+		jbPeriod := []string{"1" + params.Trr.Tr("年(购买)")}
+		for i, v := range jbPeriod {
+			_, _ = fmt.Fprintf(params.ColorOut, params.HGreen, fmt.Sprintf("%d. %s\t", i+1, v))
+		}
+		fmt.Println()
+		_, _ = fmt.Fprintf(params.ColorOut, "%s", params.Trr.Tr("请输入有效期编号（直接回车默认为1）："))
+		_, _ = fmt.Scanln(&periodIndex)
+		if periodIndex < 1 || periodIndex > len(jbPeriod) {
+			fmt.Println(params.Trr.Tr("输入有误"))
+			return
+		}
+		fmt.Println(params.Trr.Tr("选择的有效期为：") + jbPeriod[periodIndex-1])
+		fmt.Println()
+
+		//if periodIndex == 2 {
+		//	_, _ = fmt.Fprintf(params.ColorOut, green, Trr.Tr("授权成功！使用过程请不要关闭此窗口"))
+		//	countDown(2 * 60 * 60)
+		//	return
+		//}
+
+		payUrl, orderID := client.Cli.GetPayUrl()
+		isCopyText := ""
+		errClip := clipboard.WriteAll(payUrl)
+		if errClip == nil {
+			isCopyText = params.Trr.Tr("（已复制到剪贴板）")
+		}
+		fmt.Println(params.Trr.Tr("付费已到期,捐赠以获取一年期授权") + isCopyText)
+		_, _ = fmt.Fprintf(params.ColorOut, params.DGreen, payUrl)
+		fmt.Println(params.Trr.Tr("捐赠完成后请回车"))
 		//检测控制台回车
 	checkPay:
 		_, _ = fmt.Scanln()
-		isPay := Cli.PayCheck(orderID, deviceID)
+		isPay := client.Cli.PayCheck(orderID, params.DeviceID)
 		if !isPay {
-			fmt.Println(Trr.Tr("未捐赠,请捐赠完成后回车"))
+			fmt.Println(params.Trr.Tr("未捐赠,请捐赠完成后回车"))
 			goto checkPay
 		}
-		isOk, result := Cli.GetLic()
-		if !isOk {
-			fmt.Printf(red, result)
-			return
-		}
+		_, _, _, _, exp = client.Cli.GetMyInfo(params.DeviceID)
+		expTime, _ = time.ParseInLocation("2006-01-02 15:04:05", exp, time.Local)
 		fmt.Println()
 	}
-	fmt.Printf(green, Trr.Tr("授权成功！使用过程请不要关闭此窗口"))
+	go func(t int) {
+		params.SigCountDown = make(chan int, 1)
+		<-params.SigCountDown
+		_, _ = fmt.Fprintf(params.ColorOut, params.Green, params.Trr.Tr("授权成功！使用过程请不要关闭此窗口"))
+		tool.CountDown(t)
+	}(int(expTime.Sub(time.Now()).Seconds()))
 	return
-}
-
-func getMacMD5() string {
-	// 获取本机的MAC地址
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		fmt.Println("err:", err)
-		return ""
-	}
-	var macAddress []string
-	for _, inter := range interfaces {
-		// 大于en6的排除
-		if strings.HasPrefix(inter.Name, "en") {
-			numStr := inter.Name[2:]
-			num, _ := strconv.Atoi(numStr)
-			if num > 6 {
-				continue
-			}
-		}
-		if strings.HasPrefix(inter.Name, "en") || strings.HasPrefix(inter.Name, "Ethernet") || strings.HasPrefix(inter.Name, "以太网") || strings.HasPrefix(inter.Name, "WLAN") {
-			macAddress = append(macAddress, inter.HardwareAddr.String())
-		}
-	}
-	sort.Strings(macAddress)
-	return fmt.Sprintf("%x", md5.Sum([]byte(strings.Join(macAddress, ","))))
 }
 
 func printAD() {
-	ad := Cli.GetAD()
+	ad := client.Cli.GetAD()
 	if len(ad) == 0 {
 		return
 	}
-	fmt.Printf(yellow, ad)
+	_, _ = fmt.Fprintf(params.ColorOut, params.Yellow, ad)
 }
 
 func checkUpdate(version int) {
-	upUrl := Cli.CheckVersion(fmt.Sprint(version))
-	if upUrl != "" {
-		fmt.Printf(red, Trr.Tr("有新版本可用，尝试自动更新中，若失败，请输入下面命令并回车手动更新程序："))
-		fmt.Println()
-		fmt.Println(`bash -c "$(curl -fsSL ` + githubPath + `install.sh)"`)
-		var cmd *exec.Cmd
-		if strings.Contains(strings.ToLower(os.Getenv("ComSpec")), "cmd.exe") {
-			cmd = exec.Command("C:\\Program Files\\Git\\git-bash.exe", "-c", fmt.Sprintf(`bash -c "$(curl -fsSL %sinstall.sh)"`, githubPath))
-		} else {
-			cmd = exec.Command("bash", "-c", fmt.Sprintf(`bash -c "$(curl -fsSL %sinstall.sh)"`, githubPath))
-		}
-		err := cmd.Run()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(Trr.Tr("更新完成，重新运行程序即可"))
-		os.Exit(0)
+	upUrl := client.Cli.CheckVersion(fmt.Sprint(version))
+	if upUrl == "" {
 		return
 	}
-}
-
-// 获取推广人
-func getPromotion() (promotion string) {
-	b, _ := os.ReadFile(os.Getenv("HOME") + "/.cursor-viprc")
-	promotion = strings.TrimSpace(string(b))
-	if len(promotion) == 0 {
-		if len(os.Args) > 1 {
-			promotion = os.Args[1]
-		}
+	isCopyText := ""
+	installCmd := `bash -c "$(curl -fsSLk ` + params.GithubPath + params.GithubInstall + `)"`
+	errClip := clipboard.WriteAll(installCmd)
+	if errClip == nil {
+		isCopyText = params.Trr.Tr("（已复制到剪贴板）")
 	}
-	return
-}
-
-func getLocale() (langRes, locRes string) {
-	osHost := runtime.GOOS
-	langRes = "en"
-	locRes = "US"
-	switch osHost {
+	switch runtime.GOOS {
 	case "windows":
-		// Exec powershell Get-Culture on Windows.
-		cmd := exec.Command("powershell", "Get-Culture | select -exp Name")
-		output, err := cmd.Output()
-		if err == nil {
-			langLocRaw := strings.TrimSpace(string(output))
-			langLoc := strings.Split(langLocRaw, "-")
-			langRes = langLoc[0]
-			langRes = strings.Split(langRes, "-")[0]
-			locRes = langLoc[1]
-			return
-		}
-	case "darwin":
-		// Exec shell Get-Culture on MacOS.
-		cmd := exec.Command("sh", "osascript -e 'user locale of (get system info)'")
-		output, err := cmd.Output()
-		if err == nil {
-			langLocRaw := strings.TrimSpace(string(output))
-			langLoc := strings.Split(langLocRaw, "_")
-			langRes = langLoc[0]
-			langRes = strings.Split(langRes, "-")[0]
-			if len(langLoc) == 1 {
-				return
-			}
-			locRes = langLoc[1]
-			return
-		}
-		plistB, err := os.ReadFile(os.Getenv("HOME") + "/Library/Preferences/.GlobalPreferences.plist")
-		if err != nil {
-			panic(err)
-		}
-		var a map[string]interface{}
-		_, err = plist.Unmarshal(plistB, &a)
-		if err != nil {
-			panic(err)
-		}
-		langLocRaw := a["AppleLocale"].(string)
-		langLoc := strings.Split(langLocRaw, "_")
-		langRes = langLoc[0]
-		langRes = strings.Split(langRes, "-")[0]
-		if len(langLoc) == 1 {
-			return
-		}
-		locRes = langLoc[1]
-		return
-	case "linux":
-		envlang, ok := os.LookupEnv("LANG")
-		if ok {
-			langLocRaw := strings.TrimSpace(envlang)
-			langLocRaw = strings.Split(envlang, ".")[0]
-			langLoc := strings.Split(langLocRaw, "_")
-			langRes = langLoc[0]
-			langRes = strings.Split(langRes, "-")[0]
-			if len(langLoc) == 1 {
-				return
-			}
-			locRes = langLoc[1]
-			return
-		}
+		_, _ = fmt.Fprintf(params.ColorOut, params.Red, params.Trr.Tr("有新版本，请关闭本窗口，将下面命令粘贴到GitBash窗口执行")+isCopyText+`：`)
+	default:
+		_, _ = fmt.Fprintf(params.ColorOut, params.Red, params.Trr.Tr("有新版本，请关闭本窗口，将下面命令粘贴到新终端窗口执行")+isCopyText+`：`)
 	}
-	if langRes == "" {
-		langLocRaw := os.Getenv("LC_CTYPE")
-		langLocRaw = strings.Split(langLocRaw, ".")[0]
-		langLoc := strings.Split(langLocRaw, "_")
-		langRes = langLoc[0]
-		langRes = strings.Split(langRes, "-")[0]
-		if len(langLoc) == 1 {
-			return
-		}
-		locRes = langLoc[1]
-		return
-	}
+	_, _ = fmt.Fprintf(params.ColorOut, params.HGreen, installCmd)
+	_, _ = fmt.Scanln()
+	os.Exit(0)
 	return
 }
